@@ -75,7 +75,6 @@ struct icmp_filter {
 
 #ifdef ANDROID
 #include <sys/auxv.h>
-#define bcmp(a, b, c) memcmp(a, b, c)
 #endif
 
 #define	MAXIPLEN	60
@@ -119,6 +118,7 @@ int cmsg_len;
 struct sockaddr_in source;
 char *device;
 int pmtudisc = -1;
+
 
 int
 main(int argc, char **argv)
