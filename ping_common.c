@@ -1073,3 +1073,7 @@ void status(void)
 	fprintf(stderr, "\n");
 }
 
+inline int is_ours(uint16_t id) {
+	return id == ident;
+}
+
