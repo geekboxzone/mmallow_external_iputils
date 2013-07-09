@@ -73,10 +73,6 @@ struct icmp_filter {
 };
 #endif
 
-#ifdef ANDROID
-#include <sys/auxv.h>
-#endif
-
 #define	MAXIPLEN	60
 #define	MAXICMPLEN	76
 #define	NROUTES		9		/* number of record route slots */
@@ -135,10 +131,7 @@ main(int argc, char **argv)
 	char rspace[3 + 4 * NROUTES + 1];	/* record route space */
 
 #ifdef ANDROID
-	if (getauxval(AT_SECURE) != 0) {
-		fprintf(stderr, "This version of ping should NOT run with privileges. Aborting\n");
-		exit(1);
-	}
+	android_check_security();
 #endif
 
 	limit_capabilities();

@@ -35,6 +35,7 @@
 
 #ifdef ANDROID
 #include <linux/icmp.h>
+#include <sys/auxv.h>
 #endif
 
 #include "SNAPSHOT.h"
@@ -273,6 +274,7 @@ static inline int enable_capability_admin(void)		{ return modify_capability(1); 
 static inline int disable_capability_admin(void)	{ return modify_capability(0); };
 #endif
 extern void drop_capabilities(void);
+extern void android_check_security(void);
 
 extern int send_probe(void);
 extern int receive_error_msg(void);
