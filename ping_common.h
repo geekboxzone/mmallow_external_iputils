@@ -100,6 +100,7 @@ struct rcvd_table {
 };
 
 extern struct rcvd_table rcvd_tbl;
+extern int using_ping_socket;
 
 #define	A(bit)	(rcvd_tbl.bitmap[(bit) >> BITMAP_SHIFT])	/* identify word in array */
 #define	B(bit)	(((bitmap_t)1) << ((bit) & ((1 << BITMAP_SHIFT) - 1)))	/* identify bit in word */
