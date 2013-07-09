@@ -73,6 +73,10 @@ struct icmp_filter {
 };
 #endif
 
+#ifdef ANDROID
+#include <sys/auxv.h>
+#define bcmp(a, b, c) memcmp(a, b, c)
+#endif
 
 #define	MAXIPLEN	60
 #define	MAXICMPLEN	76
@@ -91,6 +95,7 @@ struct sockaddr_in whereto;	/* who to ping */
 int optlen = 0;
 int settos = 0;			/* Set TOS, Precendence or other QOS options */
 int icmp_sock;			/* socket file descriptor */
+int using_ping_socket = 0;
 u_char outpack[0x10000];
 int maxpacket = sizeof(outpack);
 
@@ -115,7 +120,6 @@ struct sockaddr_in source;
 char *device;
 int pmtudisc = -1;
 
-
 int
 main(int argc, char **argv)
 {
@@ -131,6 +135,13 @@ main(int argc, char **argv)
 #endif
 	char rspace[3 + 4 * NROUTES + 1];	/* record route space */
 
+#ifdef ANDROID
+	if (getauxval(AT_SECURE) != 0) {
+		fprintf(stderr, "This version of ping should NOT run with privileges. Aborting\n");
+		exit(1);
+	}
+#endif
+
 	limit_capabilities();
 
 #ifdef USE_IDN
@@ -139,7 +150,11 @@ main(int argc, char **argv)
 
 	enable_capability_raw();
 
-	icmp_sock = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
+	icmp_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP);
+	if (icmp_sock != -1)
+		using_ping_socket = 1;
+	else
+		icmp_sock = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
 	socket_errno = errno;
 
 	disable_capability_raw();
@@ -453,13 +468,35 @@ main(int argc, char **argv)
 		}
 	}
 
-	if ((options&F_STRICTSOURCE) &&
-	    bind(icmp_sock, (struct sockaddr*)&source, sizeof(source)) == -1) {
-		perror("bind");
-		exit(2);
+	if (!using_ping_socket) {
+		if ((options&F_STRICTSOURCE) &&
+		    bind(icmp_sock, (struct sockaddr*)&source, sizeof(source)) == -1) {
+			perror("bind");
+			exit(2);
+		}
+	} else {
+		struct sockaddr_in sa;
+		socklen_t sl;
+
+		sa.sin_family = AF_INET;
+		sa.sin_port = 0;
+		sa.sin_addr.s_addr = (options&F_STRICTSOURCE) ?
+			source.sin_addr.s_addr : 0;
+		sl = sizeof(sa);
+
+		if (bind(icmp_sock, (struct sockaddr *) &sa, sl) == -1) {
+			perror("bind");
+			exit(2);
+		}
+
+		if (getsockname(icmp_sock, (struct sockaddr *) &sa, &sl) == -1) {
+			perror("getsockname");
+			exit(2);
+		}
+		ident = sa.sin_port;
 	}
 
-	if (1) {
+	if (!using_ping_socket) {
 		struct icmp_filter filt;
 		filt.data = ~((1<<ICMP_SOURCE_QUENCH)|
 			      (1<<ICMP_DEST_UNREACH)|
@@ -474,6 +511,12 @@ main(int argc, char **argv)
 	hold = 1;
 	if (setsockopt(icmp_sock, SOL_IP, IP_RECVERR, (char *)&hold, sizeof(hold)))
 		fprintf(stderr, "WARNING: your kernel is veeery old. No problems.\n");
+	if (using_ping_socket) {
+		if (setsockopt(icmp_sock, SOL_IP, IP_RECVTTL, (char *)&hold, sizeof(hold)))
+			perror("WARNING: setsockopt(IP_RECVTTL)");
+		if (setsockopt(icmp_sock, SOL_IP, IP_RETOPTS, (char *)&hold, sizeof(hold)))
+			perror("WARNING: setsockopt(IP_RETOPTS)");
+	}
 
 	/* record route option */
 	if (options & F_RROUTE) {
@@ -642,6 +685,7 @@ int receive_error_msg()
 		nerrors++;
 	} else if (e->ee_origin == SO_EE_ORIGIN_ICMP) {
 		struct sockaddr_in *sin = (struct sockaddr_in*)(e+1);
+		int error_pkt;
 
 		if (res < sizeof(icmph) ||
 		    target.sin_addr.s_addr != whereto.sin_addr.s_addr ||
@@ -652,9 +696,18 @@ int receive_error_msg()
 			goto out;
 		}
 
-		acknowledge(ntohs(icmph.un.echo.sequence));
+		error_pkt = (e->ee_type != ICMP_REDIRECT &&
+			     e->ee_type != ICMP_SOURCE_QUENCH);
+		if (error_pkt) {
+			acknowledge(ntohs(icmph.un.echo.sequence));
+			net_errors++;
+			nerrors++;
+		}
+		else {
+			saved_errno = 0;
+		}
 
-		if (!working_recverr) {
+		if (!using_ping_socket && !working_recverr) {
 			struct icmp_filter filt;
 			working_recverr = 1;
 			/* OK, it works. Add stronger filter. */
@@ -665,15 +718,14 @@ int receive_error_msg()
 				perror("\rWARNING: setsockopt(ICMP_FILTER)");
 		}
 
-		net_errors++;
-		nerrors++;
 		if (options & F_QUIET)
 			goto out;
 		if (options & F_FLOOD) {
-			write_stdout("\bE", 2);
+			if (error_pkt)
+				write_stdout("\bE", 2);
 		} else {
 			print_timestamp();
-			printf("From %s icmp_seq=%u ", pr_addr(sin->sin_addr.s_addr), ntohs(icmph.un.echo.sequence));
+			printf("From %s: icmp_seq=%u ", pr_addr(sin->sin_addr.s_addr), ntohs(icmph.un.echo.sequence));
 			pr_icmph(e->ee_type, e->ee_code, e->ee_info, NULL);
 			fflush(stdout);
 		}
@@ -765,15 +817,41 @@ parse_reply(struct msghdr *msg, int cc, void *addr, struct timeval *tv)
 	struct iphdr *ip;
 	int hlen;
 	int csfailed;
+	struct cmsghdr *cmsg;
+	int ttl;
+	__u8 *opts;
+	int optlen;
 
 	/* Check the IP header */
 	ip = (struct iphdr *)buf;
-	hlen = ip->ihl*4;
-	if (cc < hlen + 8 || ip->ihl < 5) {
-		if (options & F_VERBOSE)
-			fprintf(stderr, "ping: packet too short (%d bytes) from %s\n", cc,
-				pr_addr(from->sin_addr.s_addr));
-		return 1;
+	if (!using_ping_socket) {
+		hlen = ip->ihl*4;
+		if (cc < hlen + 8 || ip->ihl < 5) {
+			if (options & F_VERBOSE)
+				fprintf(stderr, "ping: packet too short (%d bytes) from %s\n", cc,
+					pr_addr(from->sin_addr.s_addr));
+			return 1;
+		}
+		ttl = ip->ttl;
+		opts = buf + sizeof(struct iphdr);
+		optlen = hlen - sizeof(struct iphdr);
+	} else {
+		hlen = 0;
+		ttl = 0;
+		opts = buf;
+		optlen = 0;
+		for (cmsg = CMSG_FIRSTHDR(msg); cmsg; cmsg = CMSG_NXTHDR(msg, cmsg)) {
+			if (cmsg->cmsg_level != SOL_IP)
+				continue;
+			if (cmsg->cmsg_type == IP_TTL) {
+				if (cmsg->cmsg_len < sizeof(int))
+					continue;
+				ttl = *(int *) CMSG_DATA(cmsg);
+			} else if (cmsg->cmsg_type == IP_RETOPTS) {
+				opts = (__u8 *) CMSG_DATA(cmsg);
+				optlen = cmsg->cmsg_len;
+			}
+		}
 	}
 
 	/* Now the ICMP part */
@@ -786,7 +864,7 @@ parse_reply(struct msghdr *msg, int cc, void *addr, struct timeval *tv)
 			return 1;			/* 'Twas not our ECHO */
 		if (gather_statistics((__u8*)icp, sizeof(*icp), cc,
 				      ntohs(icp->un.echo.sequence),
-				      ip->ttl, 0, tv, pr_addr(from->sin_addr.s_addr),
+				      ttl, 0, tv, pr_addr(from->sin_addr.s_addr),
 				      pr_echo_reply))
 			return 0;
 	} else {
@@ -877,7 +955,7 @@ parse_reply(struct msghdr *msg, int cc, void *addr, struct timeval *tv)
 	}
 
 	if (!(options & F_FLOOD)) {
-		pr_options(buf + sizeof(struct iphdr), hlen);
+		pr_options(opts, optlen + sizeof(struct iphdr));
 
 		if (options & F_AUDIBLE)
 			putchar('\a');
@@ -1022,8 +1100,7 @@ void pr_icmph(__u8 type, __u8 code, __u32 info, struct icmphdr *icp)
 			printf("Redirect, Bad Code: %d", code);
 			break;
 		}
-		if (icp)
-			printf("(New nexthop: %s)\n", pr_addr(icp->un.gateway));
+		printf("(New nexthop: %s)\n", pr_addr(icp ? icp->un.gateway : info));
 		if (icp && (options & F_VERBOSE))
 			pr_iph((struct iphdr*)(icp + 1));
 		break;
@@ -1339,7 +1416,7 @@ void install_filter(void)
 		insns
 	};
 
-	if (once)
+	if (once || using_ping_socket)
 		return;
 	once = 1;
 
