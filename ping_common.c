@@ -630,7 +630,6 @@ void setup(int icmp_sock)
 			fprintf(stderr, "Warning: no SO_TIMESTAMP support, falling back to SIOCGSTAMP\n");
 	}
 #endif
-#ifdef SO_MARK
 	if (options & F_MARK) {
 		int ret;
 
@@ -645,7 +644,6 @@ void setup(int icmp_sock)
 			fprintf(stderr, "Warning: Failed to set mark %d\n", mark);
 		}
 	}
-#endif
 
 	/* Set some SNDTIMEO to prevent blocking forever
 	 * on sends, when device is too slow or stalls. Just put limit
@@ -677,7 +675,8 @@ void setup(int icmp_sock)
 			*p++ = i;
 	}
 
-	ident = htons(getpid() & 0xFFFF);
+	if (!ident)
+		ident = htons(getpid() & 0xFFFF);
 
 	set_signal(SIGINT, sigexit);
 	set_signal(SIGALRM, sigexit);

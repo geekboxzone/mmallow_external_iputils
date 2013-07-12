@@ -33,6 +33,10 @@
 #include <linux/types.h>
 #include <linux/errqueue.h>
 
+#ifdef ANDROID
+#include <linux/icmp.h>
+#endif
+
 #include "SNAPSHOT.h"
 
 #define	DEFDATALEN	(64 - 8)	/* default data length */
