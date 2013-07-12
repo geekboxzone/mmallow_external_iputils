@@ -198,6 +198,14 @@ void drop_capabilities(void)
 #endif
 }
 
+void android_check_security(void)
+{
+	if (getauxval(AT_SECURE) != 0) {
+		fprintf(stderr, "This version of ping should NOT run with privileges. Aborting\n");
+		exit(1);
+	}
+}
+
 /* Fills all the outpack, excluding ICMP header, but _including_
  * timestamp area with supplied pattern.
  */
