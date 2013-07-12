@@ -94,7 +94,6 @@ struct sockaddr_in whereto;	/* who to ping */
 int optlen = 0;
 int settos = 0;			/* Set TOS, Precendence or other QOS options */
 int icmp_sock;			/* socket file descriptor */
-int using_ping_socket = 0;
 u_char outpack[0x10000];
 int maxpacket = sizeof(outpack);
 
@@ -125,7 +124,7 @@ main(int argc, char **argv)
 {
 	struct hostent *hp;
 	int ch, hold, packlen;
-	int socket_errno;
+	int socket_errno = 0;
 	u_char *packet;
 	char *target;
 #ifdef USE_IDN
@@ -148,16 +147,14 @@ main(int argc, char **argv)
 	setlocale(LC_ALL, "");
 #endif
 
-	enable_capability_raw();
-
 	icmp_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP);
-	if (icmp_sock != -1)
-		using_ping_socket = 1;
-	else
+	if (icmp_sock < 0) {
+		enable_capability_raw();
 		icmp_sock = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
-	socket_errno = errno;
-
-	disable_capability_raw();
+		socket_errno = errno;
+		disable_capability_raw();
+		using_ping_socket = 0;
+	}
 
 	source.sin_family = AF_INET;
 
@@ -468,32 +465,10 @@ main(int argc, char **argv)
 		}
 	}
 
-	if (!using_ping_socket) {
-		if ((options&F_STRICTSOURCE) &&
-		    bind(icmp_sock, (struct sockaddr*)&source, sizeof(source)) == -1) {
-			perror("bind");
-			exit(2);
-		}
-	} else {
-		struct sockaddr_in sa;
-		socklen_t sl;
-
-		sa.sin_family = AF_INET;
-		sa.sin_port = 0;
-		sa.sin_addr.s_addr = (options&F_STRICTSOURCE) ?
-			source.sin_addr.s_addr : 0;
-		sl = sizeof(sa);
-
-		if (bind(icmp_sock, (struct sockaddr *) &sa, sl) == -1) {
-			perror("bind");
-			exit(2);
-		}
-
-		if (getsockname(icmp_sock, (struct sockaddr *) &sa, &sl) == -1) {
-			perror("getsockname");
-			exit(2);
-		}
-		ident = sa.sin_port;
+	if ((options&F_STRICTSOURCE) &&
+	    bind(icmp_sock, (struct sockaddr*)&source, sizeof(source)) == -1) {
+		perror("bind");
+		exit(2);
 	}
 
 	if (!using_ping_socket) {
