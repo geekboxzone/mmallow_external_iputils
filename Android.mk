@@ -13,3 +13,24 @@ LOCAL_MODULE := ping6
 LOCAL_C_INCLUDES := external/openssl/include
 LOCAL_SHARED_LIBRARIES := libcrypto
 include $(BUILD_EXECUTABLE)
+
+include $(CLEAR_VARS)
+LOCAL_CFLAGS := -Wno-sign-compare
+LOCAL_SRC_FILES := tracepath.c
+LOCAL_MODULE := tracepath
+LOCAL_MODULE_TAGS := debug
+include $(BUILD_EXECUTABLE)
+
+include $(CLEAR_VARS)
+LOCAL_CFLAGS := -Wno-sign-compare
+LOCAL_SRC_FILES := tracepath6.c
+LOCAL_MODULE := tracepath6
+LOCAL_MODULE_TAGS := debug
+include $(BUILD_EXECUTABLE)
+
+include $(CLEAR_VARS)
+LOCAL_CFLAGS := -Wno-sign-compare
+LOCAL_SRC_FILES := traceroute6.c
+LOCAL_MODULE := traceroute6
+LOCAL_MODULE_TAGS := debug
+include $(BUILD_EXECUTABLE)
