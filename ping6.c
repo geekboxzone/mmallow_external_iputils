@@ -988,6 +988,9 @@ int main(int argc, char *argv[])
 			disable_capability_raw();
 		}
 		firsthop.sin6_port = htons(1025);
+
+		sock_setmark(probe_fd);
+
 		if (connect(probe_fd, (struct sockaddr*)&firsthop, sizeof(firsthop)) == -1) {
 			perror("connect");
 			exit(2);

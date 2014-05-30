@@ -284,6 +284,7 @@ extern int is_ours(uint16_t id);
 
 extern int pinger(void);
 extern void sock_setbufs(int icmp_sock, int alloc);
+extern void sock_setmark(int icmp_sock);
 extern void setup(int icmp_sock);
 extern void main_loop(int icmp_sock, __u8 *buf, int buflen) __attribute__((noreturn));
 extern void finish(void) __attribute__((noreturn));

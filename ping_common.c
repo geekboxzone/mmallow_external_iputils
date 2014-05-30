@@ -605,6 +605,25 @@ void sock_setbufs(int icmp_sock, int alloc)
 	}
 }
 
+void sock_setmark(int icmp_sock) {
+#ifdef SO_MARK
+	if (options & F_MARK) {
+		int ret;
+
+		enable_capability_admin();
+		ret = setsockopt(icmp_sock, SOL_SOCKET, SO_MARK, &mark, sizeof(mark));
+		disable_capability_admin();
+
+		if (ret == -1) {
+			/* we probably dont wanna exit since old kernels
+			 * dont support mark ..
+			*/
+			fprintf(stderr, "Warning: Failed to set mark %d\n", mark);
+		}
+	}
+#endif
+}
+
 /* Protocol independent setup and parameter checks. */
 
 void setup(int icmp_sock)
@@ -639,22 +658,8 @@ void setup(int icmp_sock)
 			fprintf(stderr, "Warning: no SO_TIMESTAMP support, falling back to SIOCGSTAMP\n");
 	}
 #endif
-#ifdef SO_MARK
-	if (options & F_MARK) {
-		int ret;
 
-		enable_capability_admin();
-		ret = setsockopt(icmp_sock, SOL_SOCKET, SO_MARK, &mark, sizeof(mark));
-		disable_capability_admin();
-
-		if (ret == -1) {
-			/* we probably dont wanna exit since old kernels
-			 * dont support mark ..
-			*/
-			fprintf(stderr, "Warning: Failed to set mark %d\n", mark);
-		}
-	}
-#endif
+	sock_setmark(icmp_sock);
 
 	/* Set some SNDTIMEO to prevent blocking forever
 	 * on sends, when device is too slow or stalls. Just put limit
