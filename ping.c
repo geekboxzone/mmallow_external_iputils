@@ -360,6 +360,9 @@ main(int argc, char **argv)
 		dst.sin_port = htons(1025);
 		if (nroute)
 			dst.sin_addr.s_addr = route[0];
+
+		sock_setmark(probe_fd);
+
 		if (connect(probe_fd, (struct sockaddr*)&dst, sizeof(dst)) == -1) {
 			if (errno == EACCES) {
 				if (broadcast_pings == 0) {
